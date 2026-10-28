@@ -28,7 +28,7 @@ def build():
     hashes = {rel: hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() for rel in sorted(FILES)}
     (ROOT / "SHA256SUMS.json").write_text(json.dumps(hashes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     version = json.loads((ROOT / "settings/pack.json").read_text(encoding="utf-8"))["version"]
-    target = ROOT.parent / f"鱼鱼人格配置包-v{version}.zip"
+    target = ROOT.parent / f"yuyu-persona-pack-v{version}.zip"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for rel in sorted(FILES + ["SHA256SUMS.json"]):
             info = zipfile.ZipInfo("yuyu-persona-pack/" + rel, date_time=(2026, 10, 28, 0, 0, 0))

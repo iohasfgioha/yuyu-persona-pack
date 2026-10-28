@@ -150,7 +150,7 @@ def verify_files():
     sums = read_json(ROOT / "SHA256SUMS.json")
     required = {"tools/manage.py", "settings/pack.json", "persona/鱼鱼.md", "INSTALL.md"}
     if not isinstance(sums, dict) or not required.issubset(sums):
-        raise PackError("文件校验清单不完整。请重新下载候选包。")
+        raise PackError("文件校验清单不完整。请重新下载配置包。")
     for rel, expected in sums.items():
         path = (ROOT / rel).resolve()
         if ROOT not in path.parents or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
@@ -286,7 +286,7 @@ def public_plan(plan, manifest):
             "persona_id": manifest["persona_id"], "profile_strategy": "为这个会话复制专用配置，不改源配置",
             "changes": plan["changes"], "session_changes": {"persona_id": manifest["persona_id"], "tts_enabled": False},
             "typing": "每段发送前按字数等待，附加随机 0–0.5 秒；不显示 QQ 正在输入状态",
-            "qq_acceptance": "pending"}
+            "verification_scope": "configuration"}
 
 
 def put_rule_fields(api, origin, changes, expected):
@@ -346,7 +346,7 @@ def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lam
         validate_state(previous, api, origin)
         if previous["status"] == "complete":
             if previous["version"] != manifest["version"] or previous.get("intent") != intent:
-                raise PackError("已有不同版本记录；本候选版不自动升级，请先恢复或使用版本迁移说明。")
+                raise PackError("已有不同版本记录；本工具不自动升级，请先恢复或使用版本迁移说明。")
             result = verify(api, previous)
             if not result["ok"]:
                 raise PackError("已有安装发生变化：" + "；".join(result["problems"]))
@@ -433,8 +433,8 @@ def verify(api, state):
         if {"exists": key in rule, "value": rule.get(key)} != expected:
             issues.append("会话规则被修改：" + key)
     return {"ok": not issues, "problems": issues, "origin": state["origin"], "profile_id": profile,
-            "persona_id": state["persona_id"], "qq_acceptance": "pending",
-            "next": "在 QQ 验证人格、两段回复、打字停顿和恢复，按 docs/Windows验收.md 记录。"}
+            "persona_id": state["persona_id"], "verification_scope": "configuration",
+            "next": "可按 docs/Windows验收.md 检查 QQ 人格、分段回复与打字等待。"}
 
 
 def restore(api, state):
@@ -545,7 +545,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.action == "check":
-            result = {"status": "files_ok", "checked_files": verify_files(), "qq_acceptance": "pending"}
+            result = {"status": "files_ok", "checked_files": verify_files(), "verification_scope": "configuration"}
         else:
             options = read_options(args)
             noninteractive = args.non_interactive or bool(args.answers) or not sys.stdin.isatty()

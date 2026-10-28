@@ -118,7 +118,7 @@ class ManageTests(unittest.TestCase):
     def test_install_normalizes_persona_and_does_not_get_missing_persona(self):
         result = self.install()
         self.assertTrue(result["ok"])
-        self.assertEqual(result["qq_acceptance"], "pending")
+        self.assertEqual(result["verification_scope"], "configuration")
         self.assertFalse(any(path.startswith("/personas/") for _, path in self.api.calls))
         self.assertEqual(self.api.personas[MANIFEST["persona_id"]]["system_prompt"], self.state()["prompt"])
 
