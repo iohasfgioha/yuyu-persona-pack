@@ -10,13 +10,13 @@ jobs:
     env:
       ASTRBOT_SOURCE: ${{ github.workspace }}/.upstream
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: AstrBotDevs/AstrBot
           ref: abf683071952375ec36baa4cad6b6f3d9c9bb03f
           path: .upstream
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python }}
       - run: python -m unittest discover -s tests -v

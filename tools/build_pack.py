@@ -8,15 +8,16 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     "README.md", "AGENTS.md", "INSTALL.md", "LICENSE", "CHANGELOG.md", ".gitignore", ".gitattributes",
-    "persona/鱼鱼.md", "settings/pack.json", "examples/answers.example.json",
+    "persona/yuyu.md", "persona/鱼鱼.md", "settings/pack.json", "examples/answers.example.json",
     "tools/manage.py", "tools/build_pack.py", "tools/run.ps1",
-    "导入鱼鱼.bat", "检查鱼鱼.bat", "恢复鱼鱼设置.bat",
-    "docs/Windows验收.md", "docs/验收记录模板.md", "docs/兼容与来源.md", "docs/GitHub发布.md",
+    "导入鱼鱼.bat", "检查鱼鱼.bat", "恢复鱼鱼设置.bat", "install.bat", "verify.bat", "restore.bat",
+    "docs/Windows验收.md", "docs/验收记录模板.md", "docs/兼容与来源.md", "docs/GitHub发布.md", "docs/旧版迁移.md",
     "tests/test_manage.py", "tests/test_upstream_contract.py", ".github/workflows/check.yml",
 ]
 
 
 def build():
+    (ROOT / "persona/鱼鱼.md").write_bytes((ROOT / "persona/yuyu.md").read_bytes())
     for rel in FILES:
         path = ROOT / rel
         if not path.is_file():

@@ -1,6 +1,6 @@
 {
-  "base_url": "http://127.0.0.1:6185",
+  "base_url": "请替换为浏览器中的本机后台地址和实际端口",
   "username": "astrbot",
-  "password_file": "password.secret.txt",
+  "password_env": "YUYU_DASHBOARD_PASSWORD",
   "origin": "请替换为目标QQ会话的完整UMO"
 }

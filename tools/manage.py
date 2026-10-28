@@ -18,6 +18,10 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / ".local"
 RULE_KEY = "session_service_config"
+LEGACY_PLUGIN = "astrbot_plugin_yuyu_companion"
+LEGACY_PERSONA = "鱼鱼_温和搭子_v01"
+CORE_FILES = {"tools/manage.py", "tools/run.ps1", "settings/pack.json", "persona/yuyu.md",
+              "install.bat", "verify.bat", "restore.bat"}
 
 
 class PackError(Exception):
@@ -27,7 +31,10 @@ class PackError(Exception):
 class ApiError(PackError):
     def __init__(self, method, path, code):
         self.code = code
-        super().__init__(f"接口失败：{method} {path.split('?')[0]}，HTTP {code}。检查版本、登录权限和后台日志。")
+        resource = path.split("?", 1)[0].strip("/").split("/", 1)[0]
+        if resource not in {"auth", "personas", "config-profiles", "config-routes", "sessions", "stats", "plugins"}:
+            resource = "后台资源"
+        super().__init__(f"接口失败：{method} {resource}，HTTP {code}。检查版本、登录权限和后台日志。")
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -69,7 +76,10 @@ class Api:
             # Never print server bodies: they can contain credentials or full configuration.
             raise ApiError(method, path, error.code) from None
         except (urllib.error.URLError, OSError, TimeoutError):
-            raise PackError("后台连接失败或请求超时。写入结果可能尚不明确；保留 .local，先检查或恢复，勿删除记录后重装。") from None
+            message = "无法连接后台或请求超时。确认 AstrBot 已启动，并从后台浏览器地址栏复制实际地址和端口。Launcher 分配的端口可能不是 6185，不要从 cmd_config.json 猜端口。"
+            if method not in ("GET", "HEAD") and path != "/auth/login":
+                message += " 写入结果可能不明确；保留 .local，先检查或恢复，勿删除记录后重装。"
+            raise PackError(message) from None
         try:
             out = json.loads(payload)
         except (ValueError, UnicodeDecodeError):
@@ -97,7 +107,7 @@ def read_json(path):
 
 
 def save_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
     with temp.open("w", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2)
@@ -117,7 +127,7 @@ def state_path(base, origin):
 
 @contextlib.contextmanager
 def mutation_lock():
-    LOCAL.mkdir(exist_ok=True)
+    LOCAL.mkdir(mode=0o700, exist_ok=True)
     lock = LOCAL / "operation.lock"
     try:
         descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -148,14 +158,28 @@ def canonical_prompt(text):
 
 def verify_files():
     sums = read_json(ROOT / "SHA256SUMS.json")
-    required = {"tools/manage.py", "settings/pack.json", "persona/鱼鱼.md", "INSTALL.md"}
-    if not isinstance(sums, dict) or not required.issubset(sums):
+    if not isinstance(sums, dict) or not CORE_FILES.issubset(sums):
         raise PackError("文件校验清单不完整。请重新下载配置包。")
+    warnings = []
     for rel, expected in sums.items():
+        if not isinstance(rel, str) or not isinstance(expected, str):
+            raise PackError("文件校验清单格式错误。请重新下载配置包。")
         path = (ROOT / rel).resolve()
-        if ROOT not in path.parents or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise PackError(f"文件校验失败：{rel}。若是有意修改，请运行构建工具重新生成校验清单。")
-    return len(sums)
+        if ROOT.resolve() not in path.parents:
+            raise PackError("文件校验清单包含包目录之外的路径。")
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            if rel in CORE_FILES:
+                raise PackError(f"核心文件缺失或被修改：{rel}。请完整解压发行包；有意修改人格时编辑 persona/yuyu.md 并重新构建。")
+            warnings.append(f"辅助文件缺失或被修改：{rel}；不影响配置导入。")
+    return {"checked_files": len(sums), "warnings": warnings}
+
+
+def session_seen(api, origin):
+    query = urllib.parse.urlencode({"platform_id": origin.split(":", 1)[0]})
+    data = api.call("GET", "/sessions/active-umos?" + query)
+    if not isinstance(data, dict) or not isinstance(data.get("umos"), list) or not all(isinstance(x, str) for x in data["umos"]):
+        raise PackError("会话存在性接口结构不兼容，无法核对目标会话。")
+    return origin in data["umos"]
 
 
 def path_get(obj, dotted):
@@ -255,6 +279,7 @@ def profile_changes(config, manifest):
 
 def prepare(api, manifest, origin, source_profile=""):
     validate_origin(origin)
+    seen = session_seen(api, origin)
     mapping = routes(api)
     available = profiles(api)
     known = {r["id"] for r in available}
@@ -278,7 +303,7 @@ def prepare(api, manifest, origin, source_profile=""):
         path_set(after, path, value)
     return {"origin": origin, "source_profile": source, "source_config": config, "config_after": after,
             "changes": changes, "routes_before": mapping, "rule_before": original_rule,
-            "prompt": prompt, "persona_exists": persona is not None}
+            "prompt": prompt, "persona_exists": persona is not None, "umo_seen": seen}
 
 
 def public_plan(plan, manifest):
@@ -286,7 +311,8 @@ def public_plan(plan, manifest):
             "persona_id": manifest["persona_id"], "profile_strategy": "为这个会话复制专用配置，不改源配置",
             "changes": plan["changes"], "session_changes": {"persona_id": manifest["persona_id"], "tts_enabled": False},
             "typing": "每段发送前按字数等待，附加随机 0–0.5 秒；不显示 QQ 正在输入状态",
-            "verification_scope": "configuration"}
+            "verification_scope": "configuration", "umo_seen": plan["umo_seen"],
+            "notes": [] if plan["umo_seen"] else ["后台没有这个 UMO 的聊天记录；先在目标会话发消息并重新复制 /sid。"]}
 
 
 def put_rule_fields(api, origin, changes, expected):
@@ -336,8 +362,8 @@ def recover_created_profile(api, state):
     return None
 
 
-def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lambda _: True):
-    verify_files()
+def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lambda _: True, allow_unseen=False):
+    integrity = verify_files()
     intent = hashlib.sha256((json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n" +
                             canonical_prompt((ROOT / manifest["persona_file"]).read_text(encoding="utf-8-sig"))).encode()).hexdigest()
     destination = state_path(api.base, origin)
@@ -350,17 +376,22 @@ def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lam
             result = verify(api, previous)
             if not result["ok"]:
                 raise PackError("已有安装发生变化：" + "；".join(result["problems"]))
-            return {"status": "already_installed", **result}
+            return {"status": "already_installed", **result, **integrity,
+                    "preview": previous.get("preview", {"origin": origin, "source_profile": previous["source_profile"],
+                        "persona_id": previous["persona_id"], "changes": previous["changes"],
+                        "session_changes": {k: v["value"] for k, v in previous["rule_after"].items()}})}
         if previous["status"] != "restored":
             raise PackError("有未完成安装。先运行 restore；不要删除 .local。")
     plan = prepare(api, manifest, origin, source_profile)
     preview = public_plan(plan, manifest)
+    if not dry_run and not plan["umo_seen"] and not allow_unseen:
+        raise PackError("后台未发现目标会话，未写入任何设置。先发一条普通 QQ 消息，再复制 /sid；确认是有意配置新会话时才使用 --allow-unseen-umo。")
     if dry_run or not confirm(preview):
-        return {"status": "planned" if dry_run else "cancelled", "plan": preview}
+        return {"status": "planned" if dry_run else "cancelled", "plan": preview, **integrity}
     # Re-read all mutable preconditions after the user has reviewed the preview.
     fresh = prepare(api, manifest, origin, source_profile)
     if (fresh["source_config"] != plan["source_config"] or fresh["rule_before"] != plan["rule_before"]
-            or not same_routes(fresh["routes_before"], plan["routes_before"])):
+            or fresh["umo_seen"] != plan["umo_seen"] or not same_routes(fresh["routes_before"], plan["routes_before"])):
         raise PackError("预览后后台配置发生变化，请重新预览。")
     if destination.exists():
         save_json(LOCAL / "history" / (destination.stem + "-" + str(time.time_ns()) + ".json"), read_json(destination))
@@ -374,7 +405,7 @@ def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lam
              "route_order_before": list(plan["routes_before"]),
              "rule_before": {k: {"exists": k in rule_before, "value": rule_before.get(k)} for k in changes},
              "rule_after": {k: {"exists": True, "value": v} for k, v in changes.items()},
-             "profile_create_attempted": False, "route_attempted": False, "rule_attempted": False}
+             "profile_create_attempted": False, "route_attempted": False, "rule_attempted": False, "preview": preview}
     save_json(destination, state)
     if not fresh["persona_exists"]:
         api.call("POST", "/personas", {"persona_id": state["persona_id"], "system_prompt": state["prompt"], "begin_dialogs": [], "tools": None})
@@ -404,7 +435,7 @@ def install(api, manifest, origin, source_profile="", dry_run=False, confirm=lam
         raise PackError("安装回读未通过：" + "；".join(result["problems"]))
     state["status"] = "complete"
     save_json(destination, state)
-    return {"status": "configured", **result}
+    return {"status": "configured", **result, "preview": preview, **integrity}
 
 
 def validate_state(state, api, origin):
@@ -438,11 +469,12 @@ def verify(api, state):
 
 
 def restore(api, state):
+    integrity = verify_files()
     origin = state["origin"]
     validate_state(state, api, origin)
     destination = state_path(api.base, origin)
     if state["status"] == "restored":
-        return {"status": "already_restored"}
+        return {"status": "already_restored", **integrity}
     recover_created_profile(api, state)
     mapping = routes(api)
     changes, expected = {}, {}
@@ -476,7 +508,7 @@ def restore(api, state):
         put_routes(api, updated, mapping)
     state["status"] = "restored"
     save_json(destination, state)
-    return {"status": "restored", "retained_profile": state.get("profile_id"),
+    return {"status": "restored", "retained_profile": state.get("profile_id"), **integrity,
             "note": "原会话绑定和本轮改过的会话字段已恢复。人格与专用配置保留，确认无人使用后可在后台删除；聊天记录未清空。"}
 
 
@@ -485,7 +517,7 @@ def inspect(api, origin=""):
     if origin:
         validate_origin(origin)
         rule = session_rule(api, origin) or {}
-        out.update({"origin": origin, "effective_profile": matching_profile(routes(api), origin),
+        out.update({"origin": origin, "umo_seen": session_seen(api, origin), "effective_profile": matching_profile(routes(api), origin),
                     "session_persona": rule.get("persona_id"), "session_enabled": rule.get("session_enabled", True),
                     "llm_enabled": rule.get("llm_enabled", True)})
     # Only return the version string; backend version responses may contain extra metadata.
@@ -493,6 +525,65 @@ def inspect(api, origin=""):
     out["version"] = version.get("version", "unknown") if isinstance(version, dict) else "unknown"
     out["profiles"] = [{"id": p["id"], "name": p.get("name", "")} for p in out["profiles"]]
     return out
+
+
+def legacy_plugin(api):
+    rows = api.call("GET", "/plugins")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise PackError("插件列表结构不兼容，停止旧版清理。")
+    found = [row for row in rows if row.get("name") == LEGACY_PLUGIN]
+    if len(found) > 1 or (found and type(found[0].get("activated")) is not bool):
+        raise PackError("旧表情插件状态不明确，请在后台检查。")
+    return {"name": LEGACY_PLUGIN, "installed": bool(found), "enabled": found[0]["activated"] if found else False}
+
+
+def cleanup_legacy(api, disable_plugin=False, confirm=lambda _: False):
+    integrity = verify_files()
+    plugin = legacy_plugin(api)
+    mapping = routes(api)
+    old_profiles = []
+    for row in profiles(api):
+        config = read_profile(api, row["id"])
+        persona = config.get("agent_runner", {}).get("config", {}).get("persona", {}).get("persona_id")
+        if persona == LEGACY_PERSONA:
+            old_profiles.append({"id": row["id"], "route_count": sum(value == row["id"] for value in mapping.values())})
+    rule_count = 0
+    for page in range(1, 101):
+        data = api.call("GET", f"/sessions/rules?page={page}&page_size=100")
+        if not isinstance(data, dict) or not isinstance(data.get("rules"), list) or type(data.get("total")) is not int:
+            raise PackError("旧会话规则结构不兼容，停止旧版清理。")
+        for row in data["rules"]:
+            if not isinstance(row, dict) or not isinstance(row.get("rules"), dict):
+                raise PackError("旧会话规则格式不兼容。")
+            service = row["rules"].get(RULE_KEY) or {}
+            if not isinstance(service, dict):
+                raise PackError("旧会话服务规则格式不兼容。")
+            rule_count += service.get("persona_id") == LEGACY_PERSONA
+        if page * 100 >= data["total"]:
+            break
+    else:
+        raise PackError("会话规则数量超出检查范围，请在后台检查旧版引用。")
+    result = {"status": "legacy_inventory", "plugin": plugin,
+              "persona": {"id": LEGACY_PERSONA, "installed": find_persona(api, LEGACY_PERSONA) is not None},
+              "profiles": old_profiles, "session_rule_count": rule_count, **integrity,
+              "note": "仅检查。旧人格、路由和会话规则保留；按 docs/旧版迁移.md 处理目标会话。停用插件影响所有会话，可在后台重新启用。"}
+    if disable_plugin and plugin["enabled"]:
+        if not confirm(result):
+            return {**result, "status": "cancelled"}
+        if legacy_plugin(api) != plugin:
+            raise PackError("确认后旧插件状态改变，请重新检查。")
+        # Preserve a minimal record before a potentially ambiguous network write.
+        key = hashlib.sha256(api.base.encode()).hexdigest()[:24]
+        record = LOCAL / "legacy" / (key + ".json")
+        save_json(record, {"base": api.base, "plugin": LEGACY_PLUGIN, "enabled_before": True, "status": "disabling"})
+        api.call("PATCH", "/plugins/enabled", {"plugin_id": LEGACY_PLUGIN, "enabled": False})
+        actual = legacy_plugin(api)
+        if not actual["installed"] or actual["enabled"]:
+            raise PackError("旧插件停用回读不一致，请在后台检查，勿删除本地记录。")
+        save_json(record, {"base": api.base, "plugin": LEGACY_PLUGIN, "enabled_before": True, "status": "disabled"})
+        result.update({"status": "legacy_plugin_disabled", "plugin": actual,
+                       "note": "旧表情插件已全局停用，可在后台重新启用；旧人格、配置、路由与会话记录未删除。"})
+    return result
 
 
 def read_options(args):
@@ -504,7 +595,7 @@ def read_options(args):
         folder = location.parent
         options = read_json(location)
         if not isinstance(options, dict) or set(options) - allowed:
-            raise PackError("回答文件含未知字段。不要写 password/token 明文；用 password_file 或 token_file 指向本地文件。")
+            raise PackError("回答文件含未知字段。不要写 password/token 明文；优先用 password_env/token_env，或用 password_file/token_file 指向本地文件。")
     for key in allowed:
         value = getattr(args, key, None)
         if value is not None:
@@ -535,17 +626,20 @@ def secret(options, kind):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="鱼鱼第一阶段：检查、预览、安装、验证、恢复")
-    parser.add_argument("action", choices=("check", "inspect", "plan", "install", "verify", "restore"))
-    parser.add_argument("--answers", help="本地 JSON 回答文件，凭证使用文件路径")
+    parser.add_argument("action", choices=("check", "inspect", "plan", "install", "verify", "restore", "cleanup"))
+    parser.add_argument("--answers", help="本地 JSON 回答文件，凭证优先使用环境变量")
     for name in ("base-url", "origin", "source-profile", "username", "password-file", "password-env", "token-file", "token-env"):
         parser.add_argument("--" + name)
     parser.add_argument("--yes", action="store_true", help="按已确认范围执行安装或恢复")
     parser.add_argument("--non-interactive", action="store_true", help="缺信息直接返回错误，不挂起等待")
     parser.add_argument("--json", action="store_true", help="输出结构化结果")
+    parser.add_argument("--allow-unseen-umo", action="store_true", help="显式允许配置后台没有聊天记录的新会话")
+    parser.add_argument("--legacy", action="store_true", help="检查 v0.1 的旧人格、配置引用和表情插件")
+    parser.add_argument("--disable-plugin", choices=(LEGACY_PLUGIN,), help="明确请求全局停用旧表情插件；不会删除插件")
     args = parser.parse_args(argv)
     try:
         if args.action == "check":
-            result = {"status": "files_ok", "checked_files": verify_files(), "verification_scope": "configuration"}
+            result = {"status": "files_ok", **verify_files(), "verification_scope": "package"}
         else:
             options = read_options(args)
             noninteractive = args.non_interactive or bool(args.answers) or not sys.stdin.isatty()
@@ -557,7 +651,9 @@ def main(argv=None):
                         return default
                     raise PackError("缺少必填项：" + key)
                 return input(prompt).strip() or default
-            base = ask("base_url", "后台地址 [http://127.0.0.1:6185]：", "http://127.0.0.1:6185")
+            base = ask("base_url", "后台地址（从浏览器复制实际地址和端口，Launcher 不默认使用 6185）：")
+            if not base:
+                raise PackError("后台地址不能为空。请从浏览器地址栏或 Launcher 实例入口复制实际地址和端口。")
             token = secret(options, "token")
             api = Api(base, token)
             if not token:
@@ -569,10 +665,22 @@ def main(argv=None):
                     password = getpass.getpass("后台密码（不回显）：")
                 api.login(username, password)
                 del password
-            origin = options.get("origin", "") if args.action == "inspect" else validate_origin(ask("origin", "目标 QQ 会话 /sid 返回的完整 UMO："))
+            origin = options.get("origin", "") if args.action in ("inspect", "cleanup") else validate_origin(ask("origin", "目标 QQ 会话 /sid 返回的完整 UMO："))
             manifest = read_json(ROOT / "settings/pack.json")
             if args.action == "inspect":
                 result = inspect(api, origin)
+            elif args.action == "cleanup":
+                if not args.legacy:
+                    raise PackError("旧版检查请使用 cleanup --legacy；默认只列出，不删除设置。")
+                if args.disable_plugin and noninteractive and not args.yes:
+                    raise PackError("全局停用旧插件需要 --yes；它会影响所有会话，请先查看 cleanup --legacy。")
+                def confirm_cleanup(inventory):
+                    if args.yes:
+                        return True
+                    print(json.dumps(inventory, ensure_ascii=False, indent=2))
+                    return input("这会停用所有会话的旧表情插件，输入 停用旧表情：").strip() == "停用旧表情"
+                with mutation_lock() if args.disable_plugin else contextlib.nullcontext():
+                    result = cleanup_legacy(api, bool(args.disable_plugin), confirm_cleanup)
             elif args.action in ("plan", "install"):
                 if args.action == "install" and noninteractive and not args.yes:
                     raise PackError("自动安装需要 --yes 表示执行已确认的范围；先运行 plan 查看计划。")
@@ -581,8 +689,8 @@ def main(argv=None):
                         return True
                     print(json.dumps(preview, ensure_ascii=False, indent=2))
                     return input("确认范围，输入 导入：").strip() == "导入"
-                with mutation_lock():
-                    result = install(api, manifest, origin, options.get("source_profile", ""), args.action == "plan", confirm)
+                with mutation_lock() if args.action == "install" else contextlib.nullcontext():
+                    result = install(api, manifest, origin, options.get("source_profile", ""), args.action == "plan", confirm, args.allow_unseen_umo)
             else:
                 path = state_path(api.base, origin)
                 if not path.exists():

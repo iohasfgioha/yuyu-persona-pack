@@ -1,6 +1,6 @@
 # GitHub 发布与版本维护
 
-当前版本为 **v0.2.0**。仓库链接固定，后续修复通过新的修订版本发布，例如 v0.2.1；新增章节时再更新相应版本。
+当前版本为 **v0.2.1**。仓库链接固定，后续修复通过新的修订版本发布，例如 v0.2.2；新增章节时再更新相应版本。
 
 ## 1. 整理仓库
 
@@ -16,7 +16,7 @@
 python tools/build_pack.py
 ```
 
-构建器更新 `SHA256SUMS.json`，并在源码文件夹上一级输出 `yuyu-persona-pack-v0.2.0.zip` 和对应 SHA-256 文件。`.gitattributes` 固定源文件换行，BAT 保持 CRLF。不要手工转换编码，也不要重新压缩使用过的目录。
+构建器更新 `SHA256SUMS.json`，并在源码文件夹上一级输出 `yuyu-persona-pack-v0.2.1.zip` 和对应 SHA-256 文件。`.gitattributes` 固定源文件换行，BAT 保持 CRLF。不要手工转换编码，也不要重新压缩使用过的目录。
 
 ## 3. 发布 Release
 
@@ -24,7 +24,7 @@ python tools/build_pack.py
 
 ## 4. 把链接交给 Agent
 
-教程前半部分完成 AstrBot、QQ 和模型连接。后半部分提供仓库链接与 README 中的安装指令。Agent 需要在 AstrBot 所在电脑执行操作；使用者提供目标会话的 UMO，并在本机完成后台认证。
+教程前半部分完成 AstrBot、QQ 和模型连接。后半部分提供固定版本标签链接与 README 中的安装指令。Agent 需要在 AstrBot 所在电脑执行操作；使用者提供目标会话的 UMO，并在本机完成后台认证。
 
 安装后可按 `Windows验收.md` 确认人格、分段回复与打字等待，使用 `验收记录模板.md` 记录环境和问题。
 

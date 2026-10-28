@@ -4,11 +4,13 @@
 
 ## A. 双击方式
 
-1. 在目标 QQ 私聊中发 `/sid`，复制完整 UMO。
-2. 解压整个包，双击 `导入鱼鱼.bat`。
-3. 后台地址通常为 `http://127.0.0.1:6185`，以实际浏览器地址为准。填后台用户名、密码和 UMO；查看预览后输入“导入”。
-4. 双击 `检查鱼鱼.bat`，填写与导入时相同的地址和 UMO。使用 `localhost` 导入后，检查也保持 `localhost`，不要来回替换为 `127.0.0.1`。
-5. 按 `docs/Windows验收.md` 在 QQ 验证。此版本没有 `/鱼鱼状态` 或 `/鱼鱼表情` 命令。
+1. 打开正在使用的 AstrBot 后台，从浏览器地址栏复制实际地址和端口，只保留协议、主机、端口，去掉页面路径或 `/#/...`。Launcher 用户从实例的“打开后台”入口进入；不要照抄 6185，也不要从 `cmd_config.json` 推测运行端口。若找不到入口，先在 Launcher 实例页面查看后台地址。
+2. 在目标 QQ 私聊中先聊一句，再发 `/sid`，复制完整 UMO。
+3. 解压整个包，双击 `导入鱼鱼.bat`（或英文入口 `install.bat`）。填写上述实际地址、后台用户名、密码和 UMO；查看预览后输入“导入”。后台地址没有默认值。
+4. 双击 `检查鱼鱼.bat`（或 `verify.bat`），填写与导入时相同的地址和 UMO。使用 `localhost` 导入后，检查也保持 `localhost`，不要来回替换为 `127.0.0.1`。
+5. 按 `docs/Windows验收.md` 在 QQ 确认聊天效果。此版本没有 `/鱼鱼状态` 或 `/鱼鱼表情` 命令。
+
+找不到后台时先确认实例已经启动。无法连接和写入后超时的提示不同：只有写入请求超时才需要考虑后台已经写入、但响应未收到的情况。不通过向多个本机端口尝试登录来猜后台。
 
 BAT 通过一次性的 PowerShell 进程调用解释器；不会修改系统的长期脚本策略。系统策略阻止脚本时，可直接在终端运行 Python 命令。
 
@@ -22,20 +24,46 @@ BAT 通过一次性的 PowerShell 进程调用解释器；不会修改系统的�
 
 运行所用 Python 必须为 3.10 及以上。下面命令中的 `python` 可以替换为可用解释器的完整路径。
 
-在包目录创建 `.local`，把 `examples/answers.example.json` 复制为 `.local/answers.json`。替换后台地址、用户名和 UMO。在 `.local/password.secret.txt` 里填写后台密码；文件与回答 JSON 同一目录。密码文件末尾换行会去掉，其他空格会保留。
+先获取固定版本并记下提交号：
 
-回答文件是普通 JSON：
+```powershell
+git clone --branch v0.2.1 --depth 1 https://github.com/iohasfgioha/yuyu-persona-pack.git
+cd yuyu-persona-pack
+git rev-parse HEAD
+```
+
+没有 Git 时下载 v0.2.1 Release ZIP，记录 ZIP 的 SHA-256。包内校验用于检测文件变化，不是作者身份签名；不要将它当作任意未来 main 代码的执行授权。
+
+在包目录创建 `.local`，把 `examples/answers.example.json` 复制为 `.local/answers.json`。填写实际后台地址、用户名和 UMO。默认采用临时进程环境变量，不把密码存进包目录、OneDrive、Documents 或聊天记录。
+
+回答文件示例（地址字段必须替换）：
 
 ```json
 {
-  "base_url": "http://127.0.0.1:6185",
+  "base_url": "请替换为浏览器中的本机后台地址和实际端口",
   "username": "astrbot",
-  "password_file": "password.secret.txt",
+  "password_env": "YUYU_DASHBOARD_PASSWORD",
   "origin": "实际平台ID:FriendMessage:实际会话ID"
 }
 ```
 
-凭证可改用 `password_env` 指定环境变量名，或用 `token_file` / `token_env` 提供 AstrBot API Key/后台令牌。文件路径相对于回答文件目录；不要把凭证正文填入 `password` 或 `token` 字段。API Key 需要所用接口的 `persona`、`config`、`data` 权限，`inspect` 还用到 `system`；复制包含管理员配置的源配置时，服务器也可能要求 `config:edit_admin`。有疑问优先使用本机后台登录。
+在本机 PowerShell 安全输入凭证，然后在同一终端运行后面的命令：
+
+```powershell
+$yuyuCredential = Get-Credential -UserName astrbot -Message '请输入 AstrBot 后台密码'
+$env:YUYU_DASHBOARD_PASSWORD = $yuyuCredential.GetNetworkCredential().Password
+```
+
+操作结束后清除临时变量：
+
+```powershell
+Remove-Item Env:YUYU_DASHBOARD_PASSWORD -ErrorAction SilentlyContinue
+Remove-Variable yuyuCredential -ErrorAction SilentlyContinue
+```
+
+也可直接运行不带 `--answers` 的交互入口，密码隐藏输入。若必须用文件，将凭证放到 `%LOCALAPPDATA%\YuyuPack\` 下，并使用展开后的绝对路径填写 `password_file`；不要放进同步目录。`chmod(0600)` 在 Windows 上不提供用户 ACL 隔离，凭证所在文件夹的访问权限需要由本机用户管理。
+
+凭证还可用 `token_env` 或 `token_file` 提供 AstrBot API Key/后台令牌。文件路径相对于回答文件目录；不自动展开 `%变量名%`，密码文件只去掉末尾换行。不要把正文填入 `password` 或 `token` 字段。API Key 需 `persona`、`config`、`data` 权限，`inspect` 还用到 `system`，`cleanup --legacy` 用到 `plugin`；复制包含管理员配置的源配置时也可能需要 `config:edit_admin`。有疑问优先本机后台登录。
 
 按顺序执行：
 
@@ -49,9 +77,11 @@ python -X utf8 tools/manage.py verify --answers .local/answers.json --json
 
 `--answers` 自动采用非交互方式，缺信息直接报告，不挂着等输入。也可以逐项传入 `--base-url`、`--origin`、`--username`、`--password-file` 等参数，搭配 `--non-interactive`。没有命令行明文密码参数。
 
-`inspect` 读取版本、配置文件 ID、当前会话绑定和相关服务状态，不输出完整后台配置。`plan` 预览，不写入后台。`install --yes` 执行已核对的范围。没有用户要求安装时，仅执行检查与预览。
+`inspect` 读取版本、配置文件 ID、当前会话绑定和相关服务状态，不输出完整后台配置。`plan` 预览，不写入后台，也不占用导入/恢复的写入锁。`install --yes` 执行已核对的范围，并在 JSON 的 `preview` 中保留本次改动清单；重复安装也返回清单。写入前的 `plan` 仍应先执行。没有用户要求安装时，仅执行检查与预览。
 
-默认继承当前会话实际匹配的配置。确有需要时，回答文件可加 `source_profile` 指定从哪个配置 ID 复制；它是内部 ID，不是显示名称。目标仍然是新建的专用配置。
+`inspect` 和 `plan` 会返回 `umo_seen`。为 false 时，先在目标 QQ 会话发普通消息，再重新复制 `/sid`；安装默认停止，不创建路由。只有用户明确确认要配置尚无聊天记录的新会话时，才给 install 加 `--allow-unseen-umo`，不能将它当作通用报错修复参数。
+
+默认继承当前会话实际匹配的配置。确有需要时，回答文件可加 `source_profile` 指定从哪个配置 ID 复制；它是内部 ID，不是显示名称。目标仍然是新建的专用配置。它是导入时的副本，之后修改 default 不会自动同步到鱼鱼会话；请编辑鱼鱼专用配置。
 
 成功会返回 `status=configured`，检查通过为 `ok=true`。`verification_scope=configuration` 表示回读检查覆盖后台配置；聊天效果可按安装后检查说明确认。重复安装同一版本会只读检查；如果你之后改过人格或节奏，停止覆盖并指出差异。
 
@@ -79,11 +109,11 @@ python -X utf8 tools/manage.py restore --answers .local/answers.json --yes --jso
 
 如果只存在 `.local/operation.lock`，确认之前的导入/恢复进程已经退出后，可以仅删除该锁文件；不要删除同目录的 JSON 状态。
 
-从旧 v0.1.0 迁移：先在旧包运行它的恢复入口并检查结果；曾手动启用表情助手的，在后台停用旧助手。新包没有旧版表情插件，不自动操作来源不明确的旧安装。旧版若卡在先前的兼容问题，按旧包手动恢复说明处理；新版本使用不同人格 ID。
+从 v0.1 或 v0.2.0 更新，请按 [旧版迁移](docs/旧版迁移.md) 操作。不要通过删除 `.local` 绕过版本检查。
 
 ## E. 只用浏览器手动配置
 
-1. 在 AstrBot 后台新增人格 `鱼鱼_温和搭子_v02`，系统提示词复制 `persona/鱼鱼.md` 正文；遇到不同内容的同名人格先保留旧版。
+1. 在 AstrBot 后台新增人格 `鱼鱼_温和搭子_v021`，系统提示词复制 `persona/yuyu.md` 正文；遇到不同内容的同名人格先保留旧版。
 2. 复制目标 QQ 会话原先使用的配置，命名“鱼鱼第一阶段”，不要直接改全局默认配置。
 3. 在复制的配置中选择鱼鱼人格、内置执行器，关闭流式回复、自动文字转语音和文字转图片。
 4. 开启分段回复，设置“仅模型回复”、正则模式、按长度间隔 `log`、底数 `5.0`、长文本阈值 `150`，清空额外文本清理规则。正则复制 `[^\r\n]+(?:\r?\n|$)`。
@@ -92,3 +122,9 @@ python -X utf8 tools/manage.py restore --answers .local/answers.json --yes --jso
 7. 按安装后检查说明确认聊天效果。手动恢复时切回原会话人格/规则与原配置绑定，再检查聊天正常；不要一律恢复成系统默认值。
 
 没有对应字段、使用第三方执行器、已有插件接管回复时，记录实际 AstrBot 版本和错误，停止套用未知设置。
+
+## F. 文件校验与本地修改
+
+`tools/manage.py`、`tools/run.ps1`、三个英文 BAT、`settings/pack.json`、`persona/yuyu.md` 是运行核心，缺失或变化会停止导入及恢复。README、INSTALL、AGENTS、其他说明、中文别名、测试和 CI 等辅助文件变化只进入 JSON 的 `warnings`，不会因为写备注或翻译说明而阻断安装。
+
+`persona/yuyu.md` 是人格真源，`persona/鱼鱼.md` 是构建时生成的中文阅读副本。需要修改人格时编辑真源，运行 `python tools/build_pack.py` 更新副本和清单。核心文件缺失时先重新完整解压；中文文件名乱码时可用英文 BAT 和 ASCII 人格文件。
