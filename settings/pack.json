@@ -1,0 +1,18 @@
+{
+  "pack_id": "yuyu-persona-pack",
+  "version": "0.2.0-rc.1",
+  "persona_id": "鱼鱼_温和搭子_v02",
+  "persona_file": "persona/鱼鱼.md",
+  "profile_name": "鱼鱼第一阶段",
+  "rhythm": {
+    "enable": true,
+    "only_llm_result": true,
+    "split_mode": "regex",
+    "regex": "[^\\r\\n]+(?:\\r?\\n|$)",
+    "interval_method": "log",
+    "log_base": 5.0,
+    "words_count_threshold": 150,
+    "content_cleanup_rule": ""
+  },
+  "notes": "第一阶段：人格、说话方式、分段和按长度模拟打字等待。无附加插件或图片。"
+}

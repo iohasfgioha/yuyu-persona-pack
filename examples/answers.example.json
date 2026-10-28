@@ -1,0 +1,6 @@
+{
+  "base_url": "http://127.0.0.1:6185",
+  "username": "astrbot",
+  "password_file": "password.secret.txt",
+  "origin": "请替换为目标QQ会话的完整UMO"
+}

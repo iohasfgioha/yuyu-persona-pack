@@ -1,0 +1,25 @@
+name: Check package
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.13']
+    runs-on: ${{ matrix.os }}
+    env:
+      ASTRBOT_SOURCE: ${{ github.workspace }}/.upstream
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: AstrBotDevs/AstrBot
+          ref: abf683071952375ec36baa4cad6b6f3d9c9bb03f
+          path: .upstream
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+      - run: python tools/manage.py check
+      - run: python tools/build_pack.py
+      - run: git diff --exit-code -- SHA256SUMS.json

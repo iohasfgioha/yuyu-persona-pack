@@ -1,0 +1,14 @@
+.local/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
+answers.json
+answers.local.json
+*.secret
+*.secret.txt
+*.log
+dist/
+.upstream/
+验收记录.local.md
